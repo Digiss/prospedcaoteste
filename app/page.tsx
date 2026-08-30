@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, BarChart3, Check, ChevronDown, Download, ExternalLink, FileText, Filter, LayoutGrid, List, Mail, MoreHorizontal, Plus, Search, Send, Trash2, Upload, Video } from 'lucide-react'
+import { Archive, ChartBar as BarChart3, Check, ChevronDown, Download, ExternalLink, FileText, ListFilter as Filter, LayoutGrid, List, Mail, MoveHorizontal as MoreHorizontal, Plus, Search, Send, Trash2, Upload, Video } from 'lucide-react'
 
 type Status = 'novo' | 'qualificado' | 'contato' | 'contatado' | 'descartado'
 type Kind = 'canal' | 'video' | 'busca'
