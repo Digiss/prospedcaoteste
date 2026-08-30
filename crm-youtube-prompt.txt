@@ -1,0 +1,129 @@
+Crie um sistema web de CRM leve para prospecção de clientes em canais do YouTube (nicho: canais de crypto pequenos, que monetizam via grupo do Telegram). O usuário é um editor de vídeo freelancer que envia propostas de edição para esses canais.
+
+## Importação de dados (fonte crua)
+A importação principal é feita por um arquivo .txt simples, com UM LINK POR LINHA. Cada linha pode ser:
+- um link de canal (ex: youtube.com/@nomedocanal ou youtube.com/channel/UC...)
+- um link de vídeo (ex: youtube.com/watch?v=... ou youtu.be/...)
+
+Ao importar, o sistema deve:
+1. Ler todas as linhas, ignorando linhas vazias, duplicadas exatas, ou que não sejam URL do YouTube (mostrar um resumo pós-import: "X linhas importadas, Y ignoradas por serem inválidas/duplicadas").
+2. Classificar cada link como tipo_link = "canal" ou "video" pelo padrão da URL.
+3. Para links de canal, extrair o handle/channel_id direto da URL quando possível.
+4. Para links de vídeo, apenas guardar o link — NÃO tentar adivinhar o canal correspondente no frontend. Isso fica marcado como "aguardando resolução" (um badge cinza "não resolvido") até um enriquecimento posterior via reimport.
+5. Deduplicar automaticamente apenas quando duas linhas de CANAL apontam pro mesmo handle/channel_id. Links de vídeo nunca são deduplicados automaticamente nesta etapa.
+6. Cada linha nova nasce com: canal_nome vazio, email vazio, telegram vazio, status = "nao_contatado", e email_origem/telegram_origem = "nao_encontrado".
+
+## Reimportação / enriquecimento (fonte processada)
+Uma segunda opção de importação, separada da acima: importar um arquivo (.txt ou .csv) já enriquecido por um script externo (ex: com channel_id, canal_nome, email, telegram resolvidos via YouTube Data API).
+- O merge dessas linhas com as existentes é feito por channel_id quando disponível (não por link_original) — assim, múltiplas linhas antigas de vídeos diferentes do mesmo canal se fundem automaticamente em uma linha só, guardando todos os link_original envolvidos em um campo links_relacionados (lista).
+- Campos que já estejam marcados como origem "manual" NUNCA são sobrescritos pelo reimport — mesmo que o arquivo enriquecido traga um valor diferente, o valor manual do usuário prevalece.
+- Campos "nao_encontrado" são preenchidos com o valor do enriquecimento e passam a origem "auto".
+
+## Modelo de dados
+Tabela "canais":
+- id
+- canal_nome (texto, nullable)
+- link_original (texto — a primeira URL que originou a linha)
+- links_relacionados (lista de texto, outras URLs fundidas nesta linha via reimport)
+- tipo_link (enum: "canal" | "video")
+- channel_id (texto, nullable — preenchido só após resolução)
+- email (texto, nullable)
+- email_origem (enum: "auto" | "manual" | "nao_encontrado")
+- telegram_grupo (texto, nullable)
+- telegram_origem (enum: "auto" | "manual" | "nao_encontrado")
+- status (enum: "nao_contatado" | "contatado" | "respondeu" | "fechado" | "recusado")
+- data_contato (data, nullable)
+- observacoes (texto livre, nullable)
+- cor_agrupamento (enum de 8 cores fixas | null — ver seção de agrupamento manual)
+- criado_em / atualizado_em
+
+## Estados visuais de cada campo (badges)
+Para canal_nome, email e telegram_grupo, cada um exibe um badge de origem:
+1. **Auto** (verde) — veio de um reimport enriquecido.
+2. **Não encontrado** (amarelo) — campo vazio, aguardando preenchimento. Deve ter uma ação "Preencher manualmente" que abre edição inline E um botão para abrir o link_original em nova aba (facilita checar na hora).
+3. **Manual** (azul) — usuário preencheu à mão. Ao editar qualquer campo que estava "não encontrado", a origem vira "manual" automaticamente ao salvar (sem o usuário precisar escolher isso).
+
+Se canal_nome, email E telegram estiverem todos "não encontrado" — ou se tipo_link = "video" e ainda não foi resolvido — destacar a linha inteira com uma borda esquerda cinza + tag "linha crua", sinalizando que ainda não foi trabalhada.
+
+## Agrupamento manual por cor (para duplicatas não resolvidas automaticamente)
+Casos raros onde o sistema não identifica que duas linhas são do mesmo canal (ex: canal mudou de handle, ou são vídeos ainda não resolvidos) NÃO usam merge automático de dados. Em vez disso:
+- Cada linha tem um botão "Marcar cor" com uma paleta fixa de 8 cores (vermelho, laranja, amarelo, verde, azul, roxo, rosa, cinza), aplicada como uma faixa/borda lateral na linha.
+- O usuário usa a cor pra agrupar visualmente linhas que ele mesmo identificou como do mesmo canal — as linhas continuam sendo registros 100% independentes (status, email, telegram próprios), só compartilham a cor como referência.
+- Um filtro/agrupador na tabela permite visualizar as linhas agrupadas por cor.
+- cor_agrupamento é um campo independente de status e de origem de dados.
+
+## Funcionalidades da interface
+- Importar .txt de links crus (fluxo acima).
+- Importar arquivo enriquecido para merge (fluxo acima).
+- Visualização em tabela (padrão) com toggle para Kanban por status (5 colunas: não contatado, contatado, respondeu, fechado, recusado).
+- Filtros combináveis: por status, por "linha crua" (nada preenchido), por "contato completo" (email E telegram preenchidos, qualquer origem), por cor de agrupamento, por tipo_link.
+- Busca por canal_nome ou por qualquer link (original ou relacionado).
+- Edição inline de todos os campos, incluindo status (dropdown) e observações (textarea expansível ao focar).
+- Ao mudar status para "contatado", preencher data_contato automaticamente com a data de hoje (editável depois).
+- Contador fixo no topo: total de linhas / resolvidas (têm canal_nome) / contato completo / linhas cruas pendentes / já contatadas.
+- Exportar tudo de volta pra .txt/.csv (todos os campos), para reimportar depois de rodar o script de enriquecimento.
+- Confirmação antes de qualquer ação destrutiva (excluir linha, importar por cima de dados manuais).
+
+## Stack e estilo
+- Next.js + Tailwind, sem backend externo por enquanto — localStorage é aceitável para v1 (mencionar no código um TODO claro de onde trocar por Supabase se o usuário quiser persistência entre dispositivos depois).
+- Interface limpa e densa — é uma ferramenta de trabalho para escanear rapidamente muitas linhas, não uma landing page. Prioridade: legibilidade de badges/cores e velocidade de edição inline, não estética elaborada.
+- Cores de status (linha/dropdown): cinza (não contatado), azul (contatado), verde (respondeu), roxo (fechado), vermelho (recusado). Nota: essas são diferentes da paleta de cor_agrupamento — deixar visualmente distinguível (ex: status como badge de texto, cor_agrupamento como barra lateral fina).
+
+## Links para importar
+https://www.youtube.com/results?search_query=memecoin+tradnig&sp=EgIIAw%253D%253D
+https://www.youtube.com/watch?v=vaB08fflrYc
+https://www.youtube.com/watch?v=UCpwfRR1HVE
+https://www.youtube.com/watch?v=9Tv3ppPcJ0A
+https://www.youtube.com/watch?v=A8Zo5iXul_8
+https://www.youtube.com/watch?v=z7YHfg-4DT8
+https://www.youtube.com/watch?v=V6QLgJE_2nA
+https://www.youtube.com/watch?v=78ucliooMs0
+https://www.youtube.com/watch?v=ra_HBLe96vA
+https://www.youtube.com/watch?v=VO2KcOKHQs4
+https://www.youtube.com/watch?v=dPzQkD4dEe8
+https://www.youtube.com/watch?v=npj6RQfb2Bw
+https://www.youtube.com/watch?v=wxnNDjvM1_8
+https://www.youtube.com/watch?v=Lv-6hCjAgvw
+https://www.youtube.com/watch?v=zc8vS3A0enc
+https://www.youtube.com/watch?v=MmbTTgoTJfs
+https://www.youtube.com/watch?v=FMm-QrplphU
+https://www.youtube.com/watch?v=ssTLw9dXVhs
+https://www.youtube.com/watch?v=DVPXO3xqxVE
+https://www.youtube.com/watch?v=7xCBuFqUw1A
+https://www.youtube.com/watch?v=-vp0W2QFvg8
+https://www.youtube.com/watch?v=Dco-3_IlcQ8
+https://www.youtube.com/watch?v=5XutHsX6bco
+https://www.youtube.com/watch?v=3rFQtRAbjNY
+https://www.youtube.com/watch?v=nZ-8pNlLJ7A
+https://www.youtube.com/watch?v=bTtcOIDMT7U
+https://www.youtube.com/watch?v=PUrSsuTaY1w
+https://www.youtube.com/watch?v=BfmcwJXgzxo
+https://www.youtube.com/watch?v=1byDKhlI2bs
+https://www.youtube.com/watch?v=bDtfpZIvYBs
+https://www.youtube.com/watch?v=GOx3JRQD_hY
+https://www.youtube.com/watch?v=IeHfCpHMSDM
+https://www.youtube.com/watch?v=JHtKf2q4QrA
+https://www.youtube.com/watch?v=4XtwADQuJZw
+https://www.youtube.com/watch?v=PrPZu961Dfc
+https://www.youtube.com/watch?v=TvWGrmRmklE
+https://www.youtube.com/watch?v=GBAl5j3Wzoo
+https://www.youtube.com/watch?v=05s7UN7Onwo
+https://www.youtube.com/watch?v=QNRApNJYesM
+https://www.youtube.com/watch?v=DI_X1FbAges
+https://www.youtube.com/watch?v=qHaUmU1kYck
+https://www.youtube.com/watch?v=Rl7ZE6dZsak
+https://www.youtube.com/watch?v=V6NXri8voow
+https://www.youtube.com/watch?v=YAwDAz5WsUI
+https://www.youtube.com/watch?v=MQPIDk0S8dw
+https://www.youtube.com/watch?v=s1abWW8ysVU
+https://www.youtube.com/watch?v=InHW6XkB6YQ
+https://www.youtube.com/watch?v=TFyVSzC72Mw
+https://www.youtube.com/watch?v=QMFuhHTEkTg
+https://www.youtube.com/watch?v=givVZ5R2ynw
+https://www.youtube.com/watch?v=ojyFhu9bWMo
+https://www.youtube.com/watch?v=-czFzip_Ivw
+https://www.youtube.com/@Flipski77
+https://www.youtube.com/watch?v=6i534TVUabo
+
+## Observação
+Este arquivo reúne as instruções do sistema CRM e os links fornecidos para importação inicial.
