@@ -1,5 +1,6 @@
-'use client'
+﻿'use client'
 
+<<<<<<< HEAD
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, Download, ExternalLink, FileText, ListFilter as Filter, LayoutGrid, List, Mail, MoveHorizontal as MoreHorizontal, Plus, Search, Send, Trash2, Upload, Video } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -318,4 +319,632 @@ function Inline({ id, field, value, editing, setEditing, update, placeholder }: 
   const active = editing?.id === id && editing.field === field
   if (active) return <input autoFocus defaultValue={value} placeholder={placeholder} onBlur={e => { update(id, { [field]: e.target.value, origin: e.target.value ? 'manual' : 'nao_encontrado' }); setEditing(null) }} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditing(null) }} className="w-full rounded border border-border bg-background px-2 py-1 text-xs" />
   return <button onClick={() => setEditing({ id, field })} className="max-w-40 truncate text-left text-xs text-muted-foreground hover:text-foreground">{value || placeholder}</button>
+=======
+import { useEffect, useMemo, useState } from 'react'
+import {
+  BarChart3,
+  Check,
+  Download,
+  ExternalLink,
+  FileText,
+  Filter,
+  LayoutGrid,
+  List,
+  Mail,
+  Plus,
+  Search,
+  Send,
+  Trash2,
+  Upload,
+  Video,
+} from 'lucide-react'
+import { getDb, saveDb, type CRMRecord, type Status } from '@/lib/db'
+
+type Kind = 'canal' | 'video'
+type StatusFilter = Status | 'todos'
+type ViewMode = 'table' | 'kanban'
+type RawFilter = 'todos' | 'raw' | 'resolved'
+type ContactFilter = 'todos' | 'complete' | 'incomplete'
+
+type FieldName = 'name' | 'email' | 'telegram' | 'notes'
+
+const statusConfig: { key: Status; label: string; tone: string }[] = [
+  { key: 'nao_contatado', label: 'Não contatado', tone: 'bg-slate-500/15 text-slate-200' },
+  { key: 'contatado', label: 'Contatado', tone: 'bg-blue-500/15 text-blue-300' },
+  { key: 'respondido', label: 'Respondeu', tone: 'bg-emerald-500/15 text-emerald-300' },
+  { key: 'fechado', label: 'Fechado', tone: 'bg-violet-500/15 text-violet-300' },
+  { key: 'recusado', label: 'Recusado', tone: 'bg-red-500/15 text-red-300' },
+]
+
+const paletteNames = ['amarelo', 'azul', 'verde', 'roxo', 'vermelho', 'ciano', 'rosa', 'cinza'] as const
+const palette = ['bg-amber-400', 'bg-blue-400', 'bg-emerald-400', 'bg-violet-400', 'bg-red-400', 'bg-cyan-400', 'bg-pink-400', 'bg-slate-500']
+
+const colorClass = (color: string) => {
+  const index = paletteNames.indexOf(color as (typeof paletteNames)[number])
+  return palette[index >= 0 ? index : palette.length - 1]
+}
+
+const makeRecordFromUrl = (url: string): CRMRecord => {
+  const isCanal = url.includes('/@') || url.includes('/channel/')
+  const now = new Date().toISOString()
+
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    name: isCanal
+      ? (url.split('/@')[1] || url.split('/channel/')[1] || 'Canal importado').replace(/\?.*$/, '')
+      : 'Vídeo importado',
+    url,
+    kind: isCanal ? 'canal' : 'video',
+    status: 'nao_contatado',
+    email: '',
+    telegram: '',
+    notes: '',
+    color: 'cinza',
+    raw: !isCanal,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+export default function Page() {
+  const [records, setRecords] = useState<CRMRecord[]>([])
+  const [view, setView] = useState<ViewMode>('table')
+  const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos')
+  const [kindFilter, setKindFilter] = useState<'canal' | 'video' | 'todos'>('todos')
+  const [rawFilter, setRawFilter] = useState<RawFilter>('todos')
+  const [contactFilter, setContactFilter] = useState<ContactFilter>('todos')
+  const [colorFilter, setColorFilter] = useState<string>('todos')
+  const [importText, setImportText] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
+  const [importSummary, setImportSummary] = useState<{ added: number; ignored: number; invalid: number } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingField, setEditingField] = useState<FieldName>('name')
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const data = await getDb()
+        setRecords(data.records ?? [])
+      } catch {
+        setRecords([])
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    load()
+  }, [])
+
+  useEffect(() => {
+    if (!loading) {
+      void saveDb({ records })
+    }
+  }, [loading, records])
+
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+
+    return records.filter((record) => {
+      const matchesQuery =
+        !normalized ||
+        `${record.name} ${record.url} ${record.email} ${record.telegram} ${record.notes}`
+          .toLowerCase()
+          .includes(normalized)
+      const matchesStatus = statusFilter === 'todos' || record.status === statusFilter
+      const matchesKind = kindFilter === 'todos' || record.kind === kindFilter
+      const matchesRaw = rawFilter === 'todos' || (rawFilter === 'raw' ? record.raw : !record.raw)
+      const matchesContact =
+        contactFilter === 'todos' ||
+        (contactFilter === 'complete' ? Boolean(record.email && record.telegram) : !(record.email && record.telegram))
+      const matchesColor = colorFilter === 'todos' || record.color === colorFilter
+
+      return matchesQuery && matchesStatus && matchesKind && matchesRaw && matchesContact && matchesColor
+    })
+  }, [records, query, statusFilter, kindFilter, rawFilter, contactFilter, colorFilter])
+
+  const updateRecord = (id: string, patch: Partial<CRMRecord>) => {
+    setRecords((current) =>
+      current.map((record) =>
+        record.id === id ? { ...record, ...patch, updatedAt: new Date().toISOString() } : record,
+      ),
+    )
+  }
+
+  const handleStatusChange = (id: string, status: Status) => {
+    updateRecord(id, { status })
+  }
+
+  const importLinks = () => {
+    const lines = importText
+      .split(/\s+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    const seen = new Set<string>()
+    const validUrls: string[] = []
+    let ignored = 0
+    let invalid = 0
+
+    for (const line of lines) {
+      if (!/^https?:\/\//.test(line) || !line.includes('youtube.com')) {
+        invalid += 1
+        continue
+      }
+
+      if (seen.has(line)) {
+        ignored += 1
+        continue
+      }
+
+      seen.add(line)
+      validUrls.push(line)
+    }
+
+    const newRecords = validUrls
+      .filter((url) => !records.some((record) => record.url === url))
+      .map((url) => makeRecordFromUrl(url))
+
+    if (newRecords.length > 0) {
+      setRecords((current) => [...newRecords, ...current])
+    }
+
+    setImportText('')
+    setImportOpen(false)
+    setImportSummary({ added: newRecords.length, ignored, invalid })
+  }
+
+  const deleteRecord = (id: string) => {
+    if (!window.confirm('Deseja remover este registro do banco JSON?')) return
+    setRecords((current) => current.filter((record) => record.id !== id))
+  }
+
+  const exportFile = (type: 'csv' | 'txt') => {
+    const body =
+      type === 'csv'
+        ? [
+            'id,name,url,kind,status,email,telegram,notes,color,raw,createdAt,updatedAt',
+            ...records.map((record) =>
+              [
+                record.id,
+                record.name,
+                record.url,
+                record.kind,
+                record.status,
+                record.email,
+                record.telegram,
+                record.notes,
+                record.color,
+                String(record.raw),
+                record.createdAt,
+                record.updatedAt,
+              ]
+                .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+                .join(','),
+            ),
+          ].join('\n')
+        : records
+            .map(
+              (record) =>
+                `${record.name} | ${record.url} | email: ${record.email || 'não encontrado'} | telegram: ${record.telegram || 'não encontrado'} | status: ${record.status}`,
+            )
+            .join('\n')
+
+    const blob = new Blob([body], { type: 'text/plain;charset=utf-8' })
+    const href = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = href
+    link.download = `crm-youtube.${type}`
+    link.click()
+    URL.revokeObjectURL(href)
+  }
+
+  const totalContatos = records.filter((record) => record.email || record.telegram).length
+  const resolvidos = records.filter((record) => record.name && !record.raw).length
+  const linhasCrudas = records.filter((record) => record.raw).length
+  const contatados = records.filter((record) => record.status === 'contatado').length
+
+  return (
+    <main className="min-h-screen bg-background text-foreground">
+      <header className="border-b border-border bg-card/70 px-6 py-4">
+        <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
+              <Video className="size-5" />
+            </div>
+            <div>
+              <h1 className="font-semibold tracking-tight">
+                Signal<span className="text-amber-400">/</span>CRM
+              </h1>
+              <p className="text-xs text-muted-foreground">Prospecção de canais no YouTube</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setImportOpen(true)}
+              className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
+            >
+              <Upload className="size-4" /> Importar
+            </button>
+            <button
+              onClick={() => exportFile('csv')}
+              className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
+            >
+              <Download className="size-4" /> Exportar
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <section className="mx-auto max-w-[1500px] px-6 py-6">
+        <div className="mb-6 flex items-end justify-between">
+          <div>
+            <p className="mb-1 text-xs font-medium uppercase tracking-[0.2em] text-amber-400">
+              Central de prospecção
+            </p>
+            <h2 className="text-2xl font-semibold tracking-tight">Canais em operação</h2>
+          </div>
+
+          <div className="flex rounded-lg border border-border bg-card p-1">
+            <button
+              onClick={() => setView('table')}
+              className={`rounded-md px-3 py-1.5 text-sm ${view === 'table' ? 'bg-accent' : 'text-muted-foreground'}`}
+            >
+              <List className="mr-2 inline size-4" />Tabela
+            </button>
+            <button
+              onClick={() => setView('kanban')}
+              className={`rounded-md px-3 py-1.5 text-sm ${view === 'kanban' ? 'bg-accent' : 'text-muted-foreground'}`}
+            >
+              <LayoutGrid className="mr-2 inline size-4" />Kanban
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-5">
+          {[
+            ['Total', records.length, BarChart3],
+            ['Resolvidos', resolvidos, Check],
+            ['Contato completo', totalContatos, Mail],
+            ['Linhas cruas', linhasCrudas, FileText],
+            ['Contatados', contatados, Send],
+          ].map(([label, value, Icon]) => (
+            <div key={String(label)} className="rounded-lg border border-border bg-card p-4">
+              <div className="mb-3 flex items-center justify-between text-muted-foreground">
+                <span className="text-xs">{label}</span>
+                {<Icon className="size-4" />}
+              </div>
+              <strong className="text-2xl font-semibold">{value as number}</strong>
+            </div>
+          ))}
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="relative min-w-64 flex-1">
+            <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar canal, contato ou URL..."
+              className="w-full rounded-md border border-border bg-card py-2 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+            className="rounded-md border border-border bg-card px-3 py-2 text-sm"
+          >
+            <option value="todos">Todos os status</option>
+            {statusConfig.map((status) => (
+              <option key={status.key} value={status.key}>
+                {status.label}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={kindFilter}
+            onChange={(event) => setKindFilter(event.target.value as 'canal' | 'video' | 'todos')}
+            className="rounded-md border border-border bg-card px-3 py-2 text-sm"
+          >
+            <option value="todos">Todos os tipos</option>
+            <option value="canal">Canal</option>
+            <option value="video">Vídeo</option>
+          </select>
+
+          <select
+            value={rawFilter}
+            onChange={(event) => setRawFilter(event.target.value as RawFilter)}
+            className="rounded-md border border-border bg-card px-3 py-2 text-sm"
+          >
+            <option value="todos">Todos</option>
+            <option value="raw">Linhas cruas</option>
+            <option value="resolved">Resolvidos</option>
+          </select>
+
+          <select
+            value={contactFilter}
+            onChange={(event) => setContactFilter(event.target.value as ContactFilter)}
+            className="rounded-md border border-border bg-card px-3 py-2 text-sm"
+          >
+            <option value="todos">Contato</option>
+            <option value="complete">Completo</option>
+            <option value="incomplete">Incompleto</option>
+          </select>
+
+          <select
+            value={colorFilter}
+            onChange={(event) => setColorFilter(event.target.value)}
+            className="rounded-md border border-border bg-card px-3 py-2 text-sm"
+          >
+            <option value="todos">Todas as cores</option>
+            {paletteNames.map((color) => (
+              <option key={color} value={color}>{color}</option>
+            ))}
+          </select>
+
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Filter className="size-3" /> {filtered.length} resultados
+          </span>
+        </div>
+
+        {importSummary && (
+          <div className="mb-4 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+            Importação concluída: {importSummary.added} adicionadas, {importSummary.ignored} ignoradas por duplicidade e {importSummary.invalid} inválidas.
+          </div>
+        )}
+
+        {loading ? (
+          <div className="rounded-lg border border-border bg-card p-10 text-center text-sm text-muted-foreground">
+            Carregando banco JSON…
+          </div>
+        ) : view === 'table' ? (
+          <div className="overflow-x-auto rounded-lg border border-border bg-card">
+            <table className="w-full min-w-[1100px] text-left text-sm">
+              <thead className="border-b border-border bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  {['Canal', 'Tipo / link', 'Email', 'Telegram', 'Status', 'Observações', 'Grupo', ''].map(
+                    (heading) => (
+                      <th key={heading} className="px-4 py-3 font-medium">
+                        {heading}
+                      </th>
+                    ),
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((record) => (
+                  <tr
+                    key={record.id}
+                    className={`border-b border-border/70 last:border-0 hover:bg-muted/20 ${record.raw ? 'border-l-4 border-l-slate-500' : ''}`}
+                  >
+                    <td className="relative px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className={`h-8 w-1 rounded-full ${colorClass(record.color)}`} />
+                        <div>
+                          <button
+                            onClick={() => {
+                              setEditingId(record.id)
+                              setEditingField('name')
+                            }}
+                            className="block text-left font-medium hover:text-amber-300"
+                          >
+                            {record.name || 'Sem nome'}
+                          </button>
+                          <span className="text-xs text-muted-foreground">{record.kind}</span>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <a
+                        href={record.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1 text-xs text-amber-300 hover:underline"
+                      >
+                        {record.raw && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            cru
+                          </span>
+                        )}
+                        {record.url}
+                        <ExternalLink className="size-3 shrink-0" />
+                      </a>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => {
+                          setEditingId(record.id)
+                          setEditingField('email')
+                        }}
+                        className="max-w-40 truncate text-left text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        {record.email || 'Adicionar email'}
+                      </button>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => {
+                          setEditingId(record.id)
+                          setEditingField('telegram')
+                        }}
+                        className="max-w-40 truncate text-left text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        {record.telegram || 'Adicionar Telegram'}
+                      </button>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <select
+                        value={record.status}
+                        onChange={(event) => handleStatusChange(record.id, event.target.value as Status)}
+                        className={`rounded-full border-0 px-2 py-1 text-xs ${statusConfig.find((status) => status.key === record.status)?.tone ?? 'bg-slate-500/15 text-slate-200'}`}
+                      >
+                        {statusConfig.map((status) => (
+                          <option key={status.key} value={status.key}>
+                            {status.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => {
+                          setEditingId(record.id)
+                          setEditingField('notes')
+                        }}
+                        className="max-w-56 truncate text-left text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        {record.notes || 'Adicionar observação'}
+                      </button>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <select
+                        value={record.color}
+                        onChange={(event) => updateRecord(record.id, { color: event.target.value })}
+                        className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+                      >
+                        {paletteNames.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => deleteRecord(record.id)}
+                        className="rounded-md border border-border p-2 text-muted-foreground hover:bg-red-500/10 hover:text-red-300"
+                        aria-label="Excluir registro"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-5">
+            {statusConfig.map((status) => {
+              const items = filtered.filter((record) => record.status === status.key)
+
+              return (
+                <div key={status.key} className="rounded-lg border border-border bg-card p-3">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className={`rounded-full px-2 py-1 text-xs ${status.tone}`}>{status.label}</span>
+                    <span className="text-xs text-muted-foreground">{items.length}</span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {items.map((record) => (
+                      <div key={record.id} className="rounded-md border border-border bg-background p-2">
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <strong className="text-sm font-medium">{record.name || 'Sem nome'}</strong>
+                          <span
+                            className={`inline-block h-2.5 w-2.5 rounded-full ${colorClass(record.color)}`}
+                          />
+                        </div>
+                        <p className="truncate text-[11px] text-muted-foreground">{record.url}</p>
+                        <p className="mt-2 text-[11px] text-amber-300">
+                          {record.email || 'email não informado'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
+      {editingId && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-2xl">
+            <h2 className="mb-3 font-semibold">Editar {editingField}</h2>
+
+            {editingField === 'notes' ? (
+              <textarea
+                autoFocus
+                defaultValue={records.find((record) => record.id === editingId)?.[editingField] ?? ''}
+                onBlur={(event) => {
+                  updateRecord(editingId, { notes: event.target.value })
+                  setEditingId(null)
+                }}
+                className="min-h-28 w-full rounded-md border border-border bg-background p-3 text-sm"
+              />
+            ) : (
+              <input
+                autoFocus
+                defaultValue={records.find((record) => record.id === editingId)?.[editingField] ?? ''}
+                onBlur={(event) => {
+                  const value = event.target.value
+                  updateRecord(editingId, { [editingField]: value })
+                  setEditingId(null)
+                }}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              />
+            )}
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditingId(null)} className="rounded-md px-3 py-2 text-sm hover:bg-accent">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl rounded-xl border border-border bg-card p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="font-semibold">Importar links crus</h2>
+                <p className="text-sm text-muted-foreground">Um link por linha. O sistema salva em JSON.</p>
+              </div>
+              <button
+                onClick={() => setImportOpen(false)}
+                className="rounded-md p-2 hover:bg-accent"
+                aria-label="Fechar"
+              >
+                ×
+              </button>
+            </div>
+
+            <textarea
+              value={importText}
+              onChange={(event) => setImportText(event.target.value)}
+              placeholder="https://www.youtube.com/@seucanal"
+              className="min-h-40 w-full rounded-md border border-border bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setImportOpen(false)} className="rounded-md px-3 py-2 text-sm hover:bg-accent">
+                Cancelar
+              </button>
+              <button
+                onClick={importLinks}
+                className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:opacity-90"
+              >
+                <Plus className="mr-2 inline size-4" />Adicionar links
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  )
+>>>>>>> 63d2a99 (correcao)
 }
